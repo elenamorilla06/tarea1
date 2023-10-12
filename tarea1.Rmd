@@ -1,0 +1,555 @@
+---
+title: "Análisis de datos cistrómicos"
+author: "Sara Curado, David Delgado, David Díaz, Ángela Martínez y Elena Morilla"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  word_document: default
+---
+
+# Título: Análisis de datos cistrómicos 
+
+#### Autores: Sara Curado, David Delgado, David Díaz, Ángela Martínez y Elena Morilla
+
+[Enlace a la carpeta de GitHub que contiene los documentos](https://github.com/elenamorilla06/tarea1.git)
+
+## Introducción
+
+### Antecedentes
+
+Se podría decir que las plantas son la base del planeta tal y como lo conocemos hoy en día, por lo que estudiarlas y conocerlas a fondo es una tarea fundamental. Con este proyecto vamos a investigar **cómo el crecimiento vegetal se ve regulado por factores como, por ejemplo, la luz** y lo relacionaremos con el **síndrome de evitación de la sombra**. A este último, lo definimos como una serie de cambios en el desarrollo que la planta experimenta cuando percibe que se encuentra a la sombra y, por tanto, no obtiene suficiente luz fotosintéticamente eficaz para prosperar.
+
+
+### Objetivo
+
+El principal protagonista de nuestro estudio es el **fitocromo B (phyB)**, que lleva a cabo respuestas como la de evitación de sombra. La exposición prolongada a la sombra provoca una **floración temprana, menos ramificación, una mayor susceptibilidad a la herbivoría de insectos y una disminución del rendimiento de semillas**. Por tanto, el hecho de **evitar la sombra** tiene un impacto significativo en los rasgos agronómicos. El fitocromo se encarga de monitorear los cambios en la intensidad de la luz bajo la sombra y regulan la estabilidad de los **factores que interactúan con los fitocromos (PIF)**: Nosotros vamos a centrarnos en los factores **PIF4** y **PIF5**. PIF gobierna la regulación de la biosíntesis de auxinas, la expresión de los gees transportadores y de la señalización, por lo que es el **principal impulsor del alargamiento del hipocótilo inducido por sombra**.
+
+La **identificación de los sitios de unión del PIF5** a lo largo del genoma durante la evitación de sombra revelaron que el **FT bHLH** regula la expresión de un subconjunto de genes de respuesta de evitación de sombra.  Además nuestro estudio sugiere que los **PIF4 y 5 regulan el alargamiento por control directo** de la expresión de genes que codifican para la biosíntesis de auxina y los componentes de señalización de la misma.
+
+
+## Materiales y Métodos
+
+### Diseño Experimental
+
+Todos los datos de CHIP-seq usados en el estudio fueron almacenados en **GEO** (*Gene Expression Omnibus*) con el número de registro **GSE35059**. 
+
+Nuestro estudio consta de dos muestras, la ChIP y la input: 
+
+
+* **ChIP**: se trata de nuestra muestra procesada mediante la técnica de **CHIP-seq**.
+
+  + GSM861508 PIF5ox shade ChIPSeq
+
+* **Input**: se trata de un control que lleva a cabo una normalización para **saber si ha afectado o no el sesgo de sonicación** a nuestro estudio. 
+
+  + GSM861509 PIF5ox input
+
+
+
+### Flujo de trabajo
+
+Para el análisis de datos de ChIP-seq estableceremos en primer lugar un espacio de trabajo ordenado y adecuado en el que desempeñar la tarea. Descargaremos el genoma de referencia, su anotación y las muestras de estudio para emplazarlos en sus carpetas correspondientes antes de comenzar el análisis.
+
+Tras comprobar que la calidad de las muestras de estudio es la adecuada, se procederá al mapeo de las lecturas cortas de la muestra ChIP y del control (input) sobre el genoma de referencia, generando los archivos que almacenen los resultados. Posteriormente, ambos archivos serán comparados para determinar en qué zonas del genoma de referencia se ha detectado un número de lecturas de la muestra ChIP significativamente mayor al de la muestra input, almacenando los resultados como picos.
+
+Los ficheros de mapeo y los picos detectados serán descargados para ser visualizados en IGV y procesados por R para determinar el conjunto de genes diana de PIF5 y los procesos metabólicos que este condiciona. De forma complementaria, se llevará a cabo la determinación de motivos de ADN en los sitios de unión de PIF5 utilizando el software HOMER, para revelar así las secuencias a las que el factor de transcripción se une más frecuentemente.
+
+
+
+![Figura 1. Flujo de trabajo](fotos/flujo_trabajo.jpeg) 
+
+Una vez establecido el espacio de trabajo, en primer lugar use descargan el **genoma** y la **anotación de referencia** de *Arabidopsis thaliana* (en este caso del repositorio Ensembl Plants), colocándolos luego en su lugar correspondiente en el espacio de trabajo (carpetas *genome* y *annotation*, respectivamente). A continuación, se descargan en sus respectivas carpetas (samples, y en las subcarpetas de cada muestra) las **muestras de estudio ChIP e input** de la base de datos **GEO (NCBI)**, haciendo uso para ello del comando **fastq-dump** (cuyo único argumento es el **SRR** de la muestra a descargar de la web).
+
+Una vez preparados el espacio y el material de trabajo, se comienza comprobando que la calidad de las muestras descargadas es lo suficientemente buena como para proseguir con el estudio. Ello se realiza por medio del comando **fastqc**, que recibe como argumento el archivo .fastq de la muestra en cuestión. Del análisis de calidad de cada muestra se generan dos archivos, un .zip y un .html, siendo este último el que permite dar el visto bueno a la muestra tras comprobar los resultados obtenidos en las distintas representaciones gráficas.
+
+![Figura 2. Control de calidad de las muestras (ChIP)](fotos/calidad_chip.jpeg) 
+
+![Figura 3. Control de calidad del control (input)](fotos/calidad_input.jpeg)
+Efectivamente, podemos comprobar que la calidad de las lecturas es apropiada, por lo que se procede a continuar con el estudio y a mapear cada muestra en el genoma de referencia. Dado su gran tamaño, previamente ha de construirse un **índice** de dicho genoma que facilite el acceso a sus distintas partes durante el mapeo. Esto se realiza a través de la instrucción **bowtie2-build genome.fa index**, por la cual se indica el archivo .fa del que se debe construir el índice.
+
+Hecho esto, se procede al **mapeo** de cada muestra sobre el genoma de referencia utilizando el comando **bowtie2**, que recibe los siguientes argumentos: **-x** (directorio hasta el índice construido), **-U** (archivo .fastq de la muestra a mapear) y **-S** (nombre del archivo de salida). Como resultado, se obtiene un archivo .sam de gran tamaño que almacena el mapeo de las lecturas cortas a lo largo del genoma de referencia.
+
+Con el objetivo de reducir el tamaño del archivo y no sobrecargar el servidor, este archivo .sam será convertido a binario (.bam), obteniendo así un archivo que almacene la misma información que el anterior pero de un tamaño considerablemente menor. Esta conversión puede realizarse por medio de la instrucción **samtools sort**, que únicamente requiere del parámetro **-o** (nombre del archivo de salida) y del archivo .sam a convertir.
+
+Una vez obtenido el .bam y eliminado el .sam, construimos un **índice del mapeo** que permita su posterior visualización en IGV. Para ello se emplea el comando **samtools index**, que solo requiere del archivo .bam a indexar, generando como resultado un índice en formato .bam.bai.
+
+Tras realizar este procesamiento tanto para la muestra ChIP como para la muestra input, se debe **determinar en qué zonas del genoma se detecta un número de lecturas mapeadas de ChIP significativamente mayor al de la input (picos)**, siendo estas las regiones del genoma con **mayor probabilidad de unir el factor de transcripción PIF5**. Este proceso, conocido como *Peak Calling*, es llevado a cabo por el comando **macs2 callpeaks**, que recibe distintos argumentos: **-t** (directorio hasta la muestra tratamiento o ChIP), **-c** (directorio hasta la muestra control o input), **-f** (formato de los archivos de entrada), **--outdir** (directorio de salida) y **-n** (nombre de los archivos de salida).
+
+Como resultado de la determinación de picos se obtienen varios archivos: .narrowPeak, .r, .xls y .bed. Para **visualizar gráficamente los picos detectados a lo largo del genoma** haremos uso del **software IGV**, que requiere del genoma y la anotación de referencia, los ficheros .bam y .bam.bai de ChIP e input, el archivo .narrowPeak (información sobre los picos) y el archivo .bed (información sobre las cumbres de los picos). Tras cargar en el programa este conjunto de archivos, obtendremos una visión mucho más completa del cistroma de PIF5.
+
+Paralelamente, el archivo .narrowPeak descargado será procesado por el software RStudio, en el que se realiza un estudio completo para **determinar el conjunto de genes diana que quedan regulados por el factor de transcripción PIF5**, así como los **procesos metabólicos vegetales** que, en definitiva, quedan condicionados por su unión. De este procesamiento se generará un archivo en formato .txt que contendrá una lista de los genes diana detectados.
+
+Por último, se procesa el archivo .bed generado en la determinación de picos a través del software HOMER, con el objetivo de conocer a qué secuencias de ADN se une PIF5 con mayor frecuencia. Para ello se utiliza la instrucción **findMotifsGenome.pl**, que recibe varios argumentos: el archivo .bed a utilizar, el genoma de referencia empleado (*Arabidopsis thaliana*), el nombre de la carpeta de salida, **-size** (longitud de la secuencia de ADN que se analiza) y **-len** (longitud de los motivos de ADN buscados en los sitios de unión).
+
+Como resultado, se obtiene toda una carpeta (dnaMotifs) con información acerca de los motivos de ADN detectados (tanto nuevos como ya descubiertos con anterioridad). Los archivos .html almacenados en esta carpeta nos proporcionarán una visión general del conjunto de información generado, como trataremos más adelante.
+
+
+
+
+## Resultados 
+
+### Análisis de la distribución global del cistroma
+
+#### Número de picos o regiones cis donde se une el correspondiente facotr de transcripción
+
+
+```{r include=FALSE}
+
+library(ChIPseeker)
+library(TxDb.Athaliana.BioMart.plantsmart28)
+
+```
+
+
+
+Comenzamos leyendo el fichero de los picos mediante **PeakFile**, y guardamos en la variable **pif5.peaks**.
+
+```{r}
+
+txdb <- TxDb.Athaliana.BioMart.plantsmart28
+pif5.peaks <- readPeakFile(peakfile = "peakcalling_peaks.narrowPeak", header=FALSE)
+
+```
+
+
+Ahora, definimos la región a la que consideramos promotor entorno al **TSS** (sitio de inicio de la transcripción). Indicamos con TxDb (que es la base de datos).
+
+
+```{r}
+
+promoter <- getPromoters(TxDb=txdb, upstream=1000, downstream=1000)
+
+```
+
+En la variable **pif5.peakAnno**, vamos a almacenar la **anotación de los picos**. Posteriormente, la usaremos para la representación gráfica de su distribución a lo largo de la zona genómica.
+
+```{r, echo=TRUE, results='hide'}
+
+pif5.peakAnno <- annotatePeak(peak = pif5.peaks, tssRegion=c(-1000, 1000), TxDb=txdb)
+
+
+```
+
+
+Finalmente, **convertimos la anotación a *data frame*, donde cada pico presenta un único identificador**. Junto a estos picos vamos a encontrar una serie de columnas que nos van a aportar una serie de información sobre el mismo: información sobre las posiciones de los picos (cromosoma donde se encuentra, sitio de inicio y fin, longitud).
+
+También disponemos de información sobre las características de cada gen (geneID), es decir, el gen que se asigna a cada pico.
+
+```{r}
+
+pif5.annotation <- as.data.frame(pif5.peakAnno)
+head(pif5.annotation)
+
+```
+
+Podemos observar que aparece la columna *annotation*, que nos indica en qué zona génica se encuentra asignado el pico. Los picos que más no van a interesar en este caso son **los que aparezcan en el promotor**, pues son los que van a **regular con mayor probabilidad al gen**. 
+
+Sin embargo, en el tercer pico de la lista sucede algo diferente: **el pico aparece en una zona distal intergénica**. En este caso, **no podemos estar seguros** de que este pico indique que se regule verdaderaemente a este gen.
+
+
+
+
+#### Representación gráfica de la distribución de los picos sobre las distintas estructuras 
+
+
+
+* **plotAnnoPie**: se trata de un gráfico de tarta. Nos indica en qué porcentaje aparece cada pico en cada una de las diferentes zonas génicas. 
+
+```{r, echo=FALSE}
+
+library(ChIPseeker)
+
+plotAnnoPie(pif5.peakAnno)
+
+```
+
+En nuestro caso destacan sobre todo la presencia de picos en el **promotor** (azul), con una presencia de hasta el **51,83%**; y en la **zona intergénica distal** (violeta), con una presencia del **39,66%**. 
+
+Observamos que la mayoría aparece en la zona del promotor, lo que es un indicativo de que nuestro factor de transcripción de estudio va a estar **implicado de forma activa en la regulación de los genes adscritos a este promotor**. Sin embargo, otra gran parte de los picos aparecen en las zonas distales intergénicas, la cual hace referencia a la región del ADN que se encuentra entre dos genes en un cromosoma. Esta solía considerarse principalmente no codificante, pues no contiene información directa para la síntesis de proteínas. Puede ser que el pico indique un efecto en la regulación del gen, pero no es seguro.
+
+
+* **plotAnnoBar**: se representa la misma información que en el caso anterior, pero las diferentes zonas génicas aparecen en franjas verticales. 
+
+```{r, echo=FALSE}
+
+plotAnnoBar(pif5.peakAnno) 
+
+```
+
+
+Como se representa la misma información, los porcentajes de los picos son iguales a los mencionados anteriormente.
+
+
+* **plotDistToTSS**: se trata de una representación gráfica de la distribución de los picos en torno al TSS (sitio de inicio de la transcripción). Si están a la izquierda se encontrarán aguas abajo del TSS, mientras que, si están a la derecha, se encontrarán aguas arriba del mismo. Hemos de centrarnos en las zonas que más cercanas sean al TSS. 
+
+```{r, echo=FALSE}
+
+plotDistToTSS(pif5.peakAnno, title ="Distribución del locus genómico en relación al TSS", ylab = "Locus genómico (%) (5' -> 3')") 
+
+
+```
+
+En nuestro caso, podemos observar que **alrededor del 52% de los picos se encuentran a una distancia del TSS de entre 0-1 kb** (40% aguas abajo del TSS y el 12% aguas arriba), encontrándonos por tanto una gran mayoría de los picos obtenidos en una posición cercana al TSS. 
+
+También cabe destacar los picos que se encuentran a una **distancia entre 1-3 kb del TSS**, que constituyen alrededor del **30% de los picos**. Por tanto, **solo algunos picos (15%)** se encuentran a una distancia **superior de 3 kb del TSS**, lo cuál es indicativo de que la distribución relativa de los picos en torno al TSS es **bastante próxima**.
+
+
+* **upsetplot(pif5.peakAnno)**: representa la distribución de los picos según la zona génica, además de la expansión de los picos de una zona a otra. 
+
+
+```{r, echo=FALSE, results='hide'}
+
+library(ggupset)
+
+```
+
+```{r, echo=FALSE, results='hide'}
+
+upsetplot(pif5.peakAnno)
+
+```
+
+En cuanto a los resultados obtenidos, lo que más interesa resaltar, es que una gran cantidad de picos (más de 1100) se encuentran distribuidos en torno al promotor, afianzando así los resultados previamente obtenidos (**presencia de un efecto en el promotor**).
+
+
+* **plotPeakProf2**: representa la distribución de los picos de nuestro estudio lo largo de los genes diana. 
+
+```{r, echo=FALSE, results='hide'}
+
+plotPeakProf2(peak = pif5.peaks, upstream = rel(0.2), downstream = rel(0.2), conf = 0.95, by = "gene", type = "body", nbin = 400, TxDb = txdb, weightCol = "V5",ignore_strand = F)
+
+```
+
+Empieza aguas abajo del TSS pasando por el TTS (sitio de fin de la transcripción) y finalizando aguas arriba de es TTS. Podemos observar que el conteo de picos en la zona génica es bastante bajo. Sin embargo, este crece en gran medida conforme nos acercamos a los TSS y TTS.
+
+
+En resumen, observamos una distribución de picos muy próxima a estos puntos, siendo indicativo de que el factor va a regular la transcripción génica mediante alguna modificación en zonas cercanas al TSS y TTS. Esto tiene mucha relación con las gráficas tratadas anteriormente, pues aquellas zonas donde se observa una mayor distribución de picos, son las zonas cercana aguas arriba del TSS, lo que coincide con la posición general del promotor. Por tanto, la mayor distribución se obtiene en el promotor, tal y como venimos observando en todas las gráficas anteriores. 
+
+
+
+#### Ejemplos representativos del análisis de la distribución global del cistroma 
+
+
+En las siguientes imágenes podemos observar una serie de ejemplos del análisis llevado a cabo mediante **IGV**. Este programa permite visualizar el genoma de *Arabidopsis thaliana* junto con su anotación. Además, también permite visualizar las lecturas cortas mapeadas en el genoma de referencia tanto de la **muestra ChIP** (chip.bam Coverage) como de la **muestra control** (input.bam Coverage). Del mismo modo, podemos visualizar las zonas del genoma en las que se determinó la existencia de picos correspondientes al **cistroma del factor de transcripción PIF5** (peakcalling_peaks.narrowPeak), así como la **cumbre** de cada uno de los picos anteriormente determinados (peakcalling_summits.bed).
+
+
+![Figura 4. Ejemplo 1 IGV](fotos/IGV_1.jpeg)
+
+![Figura 5. Ejemplo 2 IGV](fotos/IGV_2.jpeg)
+
+![Figura 6. Ejemplo 3 IGV](fotos/IGV_3.jpeg)
+
+![Figura 7. Ejemplo 4 IGV](fotos/IGV_4.jpeg) 
+
+En efecto, en los ejemplos seleccionados podemos observar cómo queda determinada la **existencia de un pico** en todas aquellas zonas del genoma en las que el **número de lecturas mapeadas de la muestra ChIP es significativamente mayor que el número de lecturas mapeadas de la muestra input**. Bajo esta condición, podemos asumir que existe evidencia suficiente para afirmar que dicha región del genoma pertenece al cistroma del factor de transcripción PIF5, por lo que cabe esperar la unión del mismo en tales lugares.
+
+
+
+### Análisis del Reguloma del correspondiente factor de transcripción o marca epigenética. 
+
+Presentar y discutir el reguloma identificado (número de genes).
+
+```{r}
+
+pif5.annotation <- as.data.frame(pif5.peakAnno)
+head(pif5.annotation)
+
+```
+
+Tenemos un número inicial de genes de **2998**, a los cuales se une nuestro factor de transcripción en cualquier región del gen.
+
+Con la siguiente función, elegimos únicamente los genes cuyos picos se encuentran en la zona del promotor. Vamos a descartar el resto de opciones y nos quedamos solo con la zona de los promotores, pues estos serán los genes que están directamente regulados por el factor de transcripción. Con respecto al resto de genes, no podemos estar completamente seguros de que estén regulados por dicho factor de transcripción directamente, pues se unen en regiones más alejadas.
+
+```{r}
+target.genes <- pif5.annotation$geneId[pif5.annotation$annotation == "Promoter"]
+length(target.genes)
+```
+
+
+Podemos observar que hay un total de **1554 genes** a los que se une nuestro factor de transcripción (pif5) en la región de sus promotores. Guardamos estos genes en un archivo de texto para poder realizar así las diferentes representaciones gráficas que comentaremos a continuación.
+
+
+```{r, echo=FALSE}
+write(x = target.genes,file = "pif5_target_genes.txt")
+```
+
+
+**Enlace al fichero con el reguloma:** [Reguloma](pif5_target_genes)
+
+
+Realizar un enriquecimiento funcional del reguloma incluyendo los gráficos y tablas
+oportunas. Discutir los resultados. 
+
+
+#### Enriquecimiento funcional en términos de GO
+
+Lo primero que haremos es un **análisis del enriquecimiento funcional en términos GO** de nuestros genes. Solo queremos ver qué procesos biológicos están afectados por nuestros genes, por lo que vamos a especificarlo con **"BP"** (biological process).
+
+Con esta función los genes escogidos previamente van a ordenarse en base a aquellos términos GO en los que se haya visto que estén implicados. Por ejemplo: uno de los procesos que se ve enriquecido es la **respuesta a auxinas**, con el **ID GO:0009733**.
+
+
+```{r, include=FALSE, echo=FALSE}
+library(clusterProfiler)
+library(org.At.tair.db)
+pif5.enrich.go <- enrichGO(gene = target.genes,
+                           OrgDb         = org.At.tair.db,
+                           ont           = "BP",
+                           pAdjustMethod = "BH",
+                           pvalueCutoff  = 0.05,
+                           readable      = FALSE,
+                           keyType = "TAIR")
+```
+
+
+Al igual que antes, podemos visualizar los resultados mediante diversos gráficos. 
+
+##### Barplot y doptplot
+
+```{r, echo=FALSE}
+barplot(pif5.enrich.go,showCategory = 10)
+dotplot(pif5.enrich.go,showCategory = 10)
+```
+
+
+Podemos observar los mismos resultados en ambos gráficos, solo que se encuentran representados de distinta forma. 
+
+* Según el código de colores: se nos muestra el **ajuste del p-valor**.
+
+* El eje X nos da diferente información según el gráfico:
+
+  * **Gráfico de barras**: se nos muestra el **conteo de lecturas** que hay en cada grupo. Se encuentran comprendidas entre 40 y 80 conteos.
+
+  * **Gráfico de puntos**: se nos muestra el **ratio de genes** que se encuentran dentro de los distintos grupos, estando comprendidos entre 0.035 y 0.065.
+
+* El eje Y nos da la misma información en ambas gráficas, pues son grupos resultantes tras hacer el enriquecimiento funcional de aquellos genes afectados por los factores de transcripción del estudio.
+
+
+Como podemos observar, una parte de los genes están relacionados con la **respuesta a la luz** y la **transducción de señales en respuesta a hormonas**, mientras que otra parte está englobada dentro de **respuestas a las concentraciones de oxígeno** y **condiciones de hipoxia**. Por otra parte, hay un pequeño grupo implicado en la **respuesta celular a compuestos orgánicos cíclicos**.
+
+Los resultados obtenidos son coherentes, pues al crecer las plantas en un **ratio R/FR bajo**, es necesaria una **mayor activación de los genes** que permitan una mayor captación y respuesta a la luz roja lejana. Además, la respuesta a auxinas se debe a que este factor de transcripción también se encuentra implicado en la biogénesis de auxinas, siendo un regulador positivo del mismo. Ante esta situación de SAS, la planta **requiere un mayor crecimiento del hipocótilo** (debido al ratio R/FR bajo), siendo por tanto necesario un **aumento de la concentración de auxinas**.
+
+Por tanto, al igual que han indicado los autores, este análisis sugiere que **PIF5 podría regular las respuestas a la luz controlando de manera directa la expresión de vías hormonales**, en particular de la auxina.
+
+
+##### Emmaplot y centplot
+
+```{r, echo=FALSE, results='hide'}
+library(enrichplot)
+emapplot(pairwise_termsim(pif5.enrich.go),showCategory = 15, cex_label_category = 0.5)
+cnetplot(pif5.enrich.go,showCategory = 5, cex_label_category = 0.5, cex_label_gene = 0.25)
+```
+
+Al visualizar estos gráficos, podemos observar que aparecen los mismos grupos tras el enriquecimiento funcional, pero con algunas variaciones. Es decir, en el *emapplot* podemos observar que aparecen **respuestas a moléculas procedentes de bacterias (PRR)**, así como un cluster de genes implicados en la **detección y respuesta al ácido salicílico**.
+
+
+* En este caso, el código de colores es similar al de las gráficas anteriores. 
+
+* El tamaño de cada grupo representa el número de genes que hay dentro de él.
+
+Podemos observar los genes de respuesta a auxinas, a la intensidad de la luz y a la luz roja o luz roja lejana, siendo estos los **grupos con mayor número de genes**. Por otro lado, encontramos también otros grupos que son **minoritarios**: 
+
+  * Hay una red formada por todos los genes de **respuesta a las concentraciones de oxígeno**.
+  
+  * También encontramos otra red formada por la **respuesta a los niveles de ácido salicílico, compuestos orgánicos cíclicos y moléculas de origen bacteriano (PAMP)**. Estos genes están relacionados con las respuestas bióticas de la planta, por lo que quizás presenten una regulación por PIF5 para asegurar una mayor supervivencia en estas condiciones desfavorables de luz.
+  
+  - Podemos observar otro pequeño grupo de genes implicados en el **tropismo**, lo cual podría tener cierta relación con el crecimiento del hipocótilo dado por las auxinas como respuesta al estrés.
+  
+
+En cuanto al *cnetplot*, podemos visualizar los grandes grupos en los que se organizan los genes. De nuevo, los procesos enriquecidos son la **respuesta a la intensidad de la luz**, la **respuesta a auxinas**, y la **respuesta celular a hipoxia**.
+
+
+#### Enriquecimiento KEGG
+
+Nos permite encontrar vías metabólicas enriquecidas en nuestro conjunto de genes de estudio. 
+
+```{r, results='hide'}
+pif5.enrich.kegg <- enrichKEGG(gene  = target.genes, organism = "ath", pAdjustMethod = "BH", pvalueCutoff  = 0.05)
+df.pif5.enrich.kegg <- as.data.frame(pif5.enrich.kegg)
+
+```
+
+```{r}
+
+head(df.pif5.enrich.kegg)
+
+```
+
+Podemos observar un enriquecimiento en la **transducción de la señal de hormonas** de la planta. Algunos de los genes que encontramos son: **AT1G04240, AT1G06390, AT1G17380, AT1G19180, AT1G19840, AT1G28130, AT1G52830, AT1G72450, AT2G14960, AT2G21210** y **AT2G23170**. 
+
+Como se ha mencionado anteriormente, frente a esta situación de estrés, la planta responde con un **aumento en la síntesis de auxinas**. Además, también son necesarias otras hormonas como **giberelinas, brasinoesteroides, citoquininas** y **etileno**, pues estas también participan en la respuesta frente SAS. Por tanto, estos resultados son coherentes con respecto a lo previamente mencionado.
+
+También es necesario añadir que en los gráficos previos de enriquecimiento funcional en términos GO, hemos podido observar un aumento en la respuesta al ácido salicílico, lo que puede tener relación con el enriquecimiento KEGG.
+
+ 
+
+### Enriquecimiento de Motivos de DNA en los sitios de Unión
+
+
+HOMER (Hypergeometric Optimization of Motif EnRichment) es un conjunto de herramientas que usado para el descubrimiento de motivos y el análisis de secuenciación. HOMER busca secuencias en regiones específicas del genoma, y trata de identificar patrones de nucleótidos conservados que pueden representar sitios de unión a proteínas. Esta herramienta nos permite encontrar motivos de entre 8-20pb en datos genómicos a gran escala. 
+
+Contiene un algoritmo de descubrimiento de motivos diferenciales. Toma dos conjuntos de secuencias y permite identificar los elementos reguladores que están específicamente enriquecidos en un conjunto en relación con el otro. Hace todo lo posible para tener en cuenta el sesgo secuencial (es decir, los errores cometidos durante la preparación y secuenciación de las muestras). 
+
+Tras llevar a cabo el análisis, hemos obtenido dos archivos .html: homerResults.html [Motivos de novo](homerResults.html) y knownResults.html [Motivos conocidos](knownResults.html), que corresponden a los motivos que se encontraron enriquecidos en el sitio de unión de nuestro factor de transcripción de estudio PIF5. El primero corresponde a nuevos motivos descubiertos, mientras que el segundo contiene motivos que ya se habían descubierto previamente y que se encuentran almacenados en bases de datos. 
+
+Existen ciertas diferencias con respecto a las tablas obtenidas para los motivos de novo y los motivos previamente conocidos. Vamos a proceder a comentar brevemente los parámetros más importantes presentes en cada una de ellas y la información que pueden proporcionarnos. 
+
+
+* **Motivos conocidos** 
+
+
+Se han obtenido un total de 217 motivos. Se trata de motivos que se encontraron enriquecidos en el sitio de unión de nuestro factor de transcripción PIF5. En la tabla que se adjunta, vamos a representar los 10 primeros para hacernos una idea de la información que podemos obtener. 
+
+
+| **Motivos  conocidos** |                        **Nombre**                        | **P-valor** | **log P-valor** | **# Secuencias  diana  con motivos** | **# Secuencias  diana  con motivos** | **% Secuencias  background  con motivo** | ****# Secuencias  background con motivo** |
+|:----------------------:|:--------------------------------------------------------:|:-----------:|:---------------:|:------------------------------------:|:------------------------------------:|:----------------------------------------:|:-----------------------------------------:|
+|            1           |     PIF4(bHLH)/Seedling-PIF4-ChIP-Seq(GSE35315)/Homer    |    1e-871   |    -2.007e+03   |                1642.0                | 3661.7                               | 9.09%                                    |                   3661.7                  |
+|            2           | PIF5ox(bHLH)/Arabidopsis-PIF5ox-ChIP-Seq(GSE35062)/Homer |    1e-859   |    -1.980e+03   |                1518.0                | 3008.2                               | 7.47%                                    |                   3008.2                  |
+|            3           |        BIM2(bHLH)/col-BIM2-DAP-Seq(GSE60143)/Homer       |    1e-710   |    -1.637e+03   |                1404.0                | 3158.6                               | 7.84%                                    |                   3158.6                  |
+|            4           |     SPCH(bHLH)/Seedling-SPCH-ChIP-Seq(GSE57497)/Homer    |    1e-661   |    -1.524e+03   |                1542.0                | 4356.8                               | 10.82%                                   |                   4356.8                  |
+|            5           |     IBL1(bHLH)/Seedling-IBL1-ChIP-Seq(GSE51120)/Homer    |    1e-542   |    -1.248e+03   |                1407.0                | 4339.7                               | 10.77%                                   |                   4339.7                  |
+|            6           |      bHLH74(bHLH)/col-bHLH74-DAP-Seq(GSE60143)/Homer     |    1e-472   |    -1.089e+03   |                 663.0                | 770.2                                | 1.91%                                    |                   770.2                   |
+|            7           |   At4g36780(BZR)/col-At4g36780-DAP-Seq(GSE60143)/Homer   |    1e-456   |    -1.052e+03   |                 826.0                | 1475.3                               | 3.66%                                    |                   1475.3                  |
+|            8           |   ABF1(bZIP)/Arabidopsis-ABF1-ChIP-Seq(GSE80564)/Homer   |    1e-455   |    -1.049e+03   |                1065.0                | 2749.6                               | 6.83%                                    |                   2749.6                  |
+|            9           |    bHLH34(bHLH)/colamp-bHLH34-DAP-Seq(GSE60143)/Homer    |    1e-446   |    -1.028e+03   |                 820.0                | 1495.7                               | 3.71%                                    |                   1495.7                  |
+|           10           |   At1g78700(BZR)/col-At1g78700-DAP-Seq(GSE60143)/Homer   |    1e-442   |    -1.018e+03   |                 796.0                | 1406.0                               | 3.49%                                    |                   1406.0                  |
+
+
+Podemos observar que cada motivo tiene su propio nombre. También se nos proporciona información sobre los p-valores obtenidos y el número (#) y porcentaje (%) de nuestras secuencias diana que poseen dicho motivo conocido.
+
+Otros de los parámetros que podemos apreciar, son el número (#) y el porcentaje (%) de secuencias que homer ha usado como background y que, además, en ellas están presentes estos motivos conocidos.
+
+
+
+* **Motivos de novo** 
+
+Se han obtenido un total de 16 motivos. Sin embargo, solo vamos a considerar los 14 primeros. Los  motivos 15 y 16 aparecen con un * rojo, lo que nos indica que ese motivo posiblemente sea un falso positivo.
+
+
+| **Motivos de novo** | **P-valor** | **log P-valor** | **% de dianas** | **% de background** | **STD(Bg STD)** |                         **Mejor macth**                         |
+|:-------------------:|:-----------:|:---------------:|:---------------:|:-------------------:|:---------------:|:---------------------------------------------------------------:|
+|        **1**        |    1e-872   |    -2.009e+03   |      60.51%     |        11.87%       | 22.0pb (44.3bp) | PIF5ox(bHLH)/Arabidopsis-PIF5ox-ChIP-Seq(GSE35062)/Homer(0.986) |
+|        **2**        |    1e-152   |    -3.508e+02   |      23.48%     |        7.82%        | 26.6bp (40.8bp) |               OJ1581_H09.2/MA1031.1/Jaspar(0.949)               |
+|        **3**        |    1e-26    |    6.006e+01    |      16.11%     |        9.83%        | 27.6bp (36.7bp) |                  WRKY50/MA1317.1/Jaspar(0.912)                  |
+|        **4**        |    1e-24    |    -5.591e+01   |      5.30%      |        2.10%        | 27.0bp (42.1bp) |             ARALYDRAFT_484486/MA1098.1/Jaspar(0.764)            |
+|        **5**        |    1e-23    |    -5.388e+01   |      5.34%      |        2.16%        | 28.5bp (46.5bp) |     CAMTA1(CAMTA)/col-CAMTA1-DAP-Seq(GSE60143)/Homer(0.820)     |
+|        **6**        |    1e-23    |    -5.336e+01   |      1.63%      |        0.25%        | 23.9bp (32.0bp) |                   KAN1/MA1027.1/Jaspar(0.816)                   |
+|        **7**        |    1e-20    |    -4.791e+01   |      4.50%      |        1.78%        | 28.2bp (38.8bp) |   AT4G00250(GeBP)/col-AT4G00250-DAP-Seq(GSE60143)/Homer(0.751)  |
+|        **8**        |    1e-20    |    -4.768e+01   |      5.00%      |        2.09%        | 27.2bp (33.8bp) |    bZIP52(bZIP)/colamp-bZIP52-DAP-Seq(GSE60143)/Homer(0.930)    |
+|        **9**        |    1e-20    |    -4.754e+01   |      35.12%     |        27.25%       | 30.1bp (37.6bp) |    HDG1(Homeobox)/col100-HDG1-DAP-Seq(GSE60143)/Homer(0.862)    |
+|        **10**       |    1e-20    |    -4.744e+01   |      6.57%      |        3.14%        | 29.3bp (32.8bp) |                  bHLH130/MA1358.1/Jaspar(0.918)                 |
+|        **11**       |    1e-16    |    -3.745e+01   |      1.33%      |        0.25%        | 21.3bp (31.1bp) |                   KUA1/MA1398.2/Jaspar(0.807)                   |
+|        **12**       |    1e-15    |    -3.681e+01   |      3.97%      |        1.69%        | 25.9bp (28.2bp) |         FRS9(ND)/col-FRS9-DAP-Seq(GSE60143)/Homer(0.874)        |
+|        **13**       |    1e-15    |    -3.676e+01   |      1.70%      |        0.41%        | 21.7bp (35.2bp) |    Knotted(Homeobox)/Corn-KN1-ChIP-Seq(GSE39161)/Homer(0.691)   |
+|        **14**       |    1e-13    |    -3.027e+01   |      1.00%      |        0.17%        | 24.5bp (36.0bp) |           Unknown3/Arabidopsis-Promoters/Homer(0.790)           |
+
+
+En este caso, encontramos algunos parámetros que no estaban presentes en la tabla de los motivos conocidos. Por ejemplo, se nos proporciona el tamaño de los nuevos motivos encontrados (STD) y del background (Bg STD). 
+
+En la columna “Best Match/Details”, podremos consultar el motivo conocido que más se asemeja a nuestro motivo de novo. Sin embargo, es necesario no tomarse esta información al pie de la letra, pues puede ser que la que ahora se considera la mejor combinación, todavía no sea del todo adecuada. Podemos obtener más información al respecto en el enlace de *More information*. 
+
+Para ver el tipo de información que podemos encontrar al acceder a *More Information*, vamos a usar como ejemplo el primer motivo de novo encontrado (**1-HCCACGTG (Motif 1)**). 
+
+**Importante: para poder visualizar la información de este apartado, es necesario tener descargada en nuestro ordenador la carpeta dnaMotifs que creó Homer a la hora de llevar a cabo el análisis.**  
+
+Este apartado contiene información básica, incluyendo enlaces al archivo del motivo en cuestión (normal y reversa: *SVG files*), además de una versión PDF del logotipo del motivo. 
+
+![Figura 8. Más información del motivo 1 de novo](fotos/more_information.png)   
+
+
+En el apartado *Matches to known motifs*, se dispone de información sobre las **coincidencias con los motivos conocidos**. Se nos muestran las alineaciones entre el motivo de novo y los motivos conocidos. Es de gran importancia comprobar estos alineamientos para ver que, realmente, estos son razonables. 
+
+![Figura 9. Coincidencias con motivos conocidos](fotos/matches_to_known.png) 
+
+
+
+Además del enlace de *More information*, disponemos de otro: *Similar Motifs Found*. 
+
+
+![Figura 10. Motivos Similares Encontrados](fotos/similar_motifs_found.png)
+
+
+
+Aquí, se nos mostrarán los otros motivos *de novo* encontrados durante el análisis de Homer. La diferencia con los ya representados como **motivos de novo** en las tablas que se adjuntan, es que estos tenían un **valor de enriquecimiento menor**.  
+
+
+![Figura 11. Motivos similares al motivo 1](fotos/similar_motifs_motif1.png)
+
+
+
+Este apartado contiene un encabezado similar al del apartado *More information*, a diferencia de que debajo se muestran los **motivos que se consideran similares**. Generalmente, se recomienda revistar esta lista pues, a veces, **se agrupa un motivo en la lista solo porque comparta un par de residuos**, por lo que tal asignación **no sería correcta**. 
+
+
+En resumen, al llevar a cabo el análisis de Homer, se han encontrado un total de 217 motivos previamente conocidos, mientras que solo se encontraron 14 motivos *de novo* que aún no habían sido registrados. En realidad, se detectaron 16 motivos de novo, los dos últimos tenían una gran probabilidad de ser falsos positivos, por lo que solo se consideraron los 14 primeros. 
+
+
+## Conclusiones
+
+### Conclusiones alcanzadas 
+
+La principal conclusión que se puede obtener tras llevar a cabo el análisis de la distribución global del cistroma y a partir de las diferentes gráficas obtenidas, es la siguiente: la mayoría de los picos obtenidos presentan una distribución muy marcada en torno al promotor. Además, su presencia es, en general, muy cercana tanto a los TSS como a los TTS, siendo esto indicativo de que el factor de transcripción va a afectar a la expresión génica **de manera muy activa** y, por ende, va a tener un **efecto claro sobre el fenotipo** del organismo.
+
+Con respecto a los resultados del enriquecimiento funcional del reguloma, hemos observado que **PIF5 en situaciones de estrés SAS regula de forma positiva los genes de respuesta a luz y luz roja lejana, así como a la transducción de la respuesta a auxinas**. Estos datos se ven reforzados por los resultados del enriquecimiento KEGG, ya que vemos un aumento en las rutas metabólicas relacionadas con la transducción de señal de las hormonas de la planta en general.
+Por tanto, podemos concluir que PIF5 es un **regulador positivo** de diversos genes de respuesta a hormonas, así como luz, aunque hemos visto que está implicada en otros procesos como hipoxia, tropismos y respuesta a compuestos cíclicos, aunque de una forma minoritaria.
+
+Finalmente, llevamos a cabo un **análisis de enriquecimiento de motivos** mediante el software HOMER para la búsqueda de motivos diferenciales. Como resultado, obtuvimos 217 motivos conocidos (es decir, previamente registrados en bases de datos) y 14 motivos enriquecidos que no se habían registrado previamente, a los que nos referimos como motivos *de novo*.
+Estos 14 motivos *de nov*o* encontrados, podrían ser potencialmente **nuevos sitios de unión a proteínas** (en este caso, nuestro factor de transcripción de estudio PIF5), pudiendo estar involucrados en la regulación génica. 
+
+
+En el artículo se quiere evaluar el papel de PIF5 y PIF4 durante la respuesta de evitación de sombra (SAS) y por ello se analiza su contribución en la expresión génica en **plántulas tratadas con baja relación R/FR** (equivalente a sombra) e identifican los sitios de unión de PIF5 en todo el genoma. 
+
+Con ChIP-seq se revelaron un gran número de genes cerca de los cuales había sitios de unión de PIF5. Dicho número de genes es comparable a los identificados en experimentos de ChIP en todo el genoma para otros factores de transcripción involucrados en la señalización de la luz. Los sitios de unión eran abundantes en la región 5' del sitio de inicio de la transcripción (TSS), siguiendo un patrón de unión similar al visto para otros miembros de la familia bHLH. 
+
+Se realizaron análisis de expresión génica para identificar aquellos genes que requieren PIF4/PIF5 para su regulación normal mediante un tratamiento de baja relación R/FR (sombra). Entre estos genes, un pequeño grupo requería PIF4/PIF5 para una expresión robusta inducida por baja relación R/FR. 
+
+Mientras que algunos genes promueven la SAS, otros (HFR1, PIL1) desempeñan un papel negativo en la evitación de sombra. Los datos indican que **PIF4 y PIF5 controlan directamente la expresión de varios genes que actúan como reguladores negativos de la respuesta de evitación de sombra**. 
+Además, con otros experimentos con mutantes y combinado con nuestro análisis de ChIP, concluimos que **PIF4 y PIF5 son reguladores directos de la expresión de varios genes en condiciones de alta relación R/FR**. 
+
+Tanto el análisis de los genes unidos por PIF5 como los genes mal regulados en el mutante muestran una fuerte sobrerrepresentación de los términos GO "respuesta al estímulo de auxina" y "respuesta al estímulo de hormonas". Estos resultados concuerdan con los hallazgos recientes que relacionan a PIF4 y PIF5 con respuestas de crecimiento mediadas por auxina. Además, junto con otros estudios previos se sugiere que PIF4 y PIF5 modulen el alargamiento por control directo regulando directamente las respuestas controladas por auxinas.
+
+Del mismo modo, se dice que el control mediado por PIFs del crecimiento impulsado por auxina podría involucrar diferentes mecanismos (transporte, señalización, síntesis) en diferentes situaciones.
+
+Como conclusión final, proponemos: una baja relación R/FR a menudo se asocia con condiciones de sombra lo que puede desencadenar en síndrome de evitación de sombra. Esta respuesta es regulada por fitocromos, proteínas fotosensibles que las plantas utilizan para percibir la relación R/FR y ajustar su crecimiento en consecuencia. En el artículo original se tratan el PIF 4 y 5, mientras que nuestro equipo se ha basado generalmente en el último (**PIF5**), del cual hemos obtenido las siguientes conclusiones: **PIF5 controla directamente la expresión de varios genes que actúan como reguladores negativos de la respuesta de evitación de sombra, modula el alargamiento por control directo regulando directamente las respuestas controladas por auxinas e interviene en la respuesta al estímulo de hormonas**.
+
+Finalmente: tras haber llevado a cabo los análisis oportunos con las distintas herramientas vistas en clase, hemos podido llegar a las mismas conclusiones que los autores del artículo original. 
+
+
+### Experimento que se propone
+
+Lo que nos interesa es llevar a cabo un experimento que nos permita constrastar la información obtenida. Es decir, comprobar si, verdaderamente, el PIF5 es un regulador positivo de genes de respuesta a hormonas, a luz (SAS) y otras respuestas minoritarias como la hipoxia, los tropismos y los compuestos cíclicos. 
+
+Vamos a empezar centrándonos en las que creemos, según los resultados obtenidos, que son las respuestas mayoritarias en las que se encuentra implicado nuestro factor de transcripción de estudio: regulación de la transducción de auxinas y respuestas a la luz (estrés por sombra). Para ello, vamos a llevar a cabo el experimento que se describe a continuación.
+
+Estudiar el crecimiento y desarrollo de tres tipos de plantas en diferentes condiciones: 
+
+* **Control**. Estas plantas van a tener el gen que codifica para nuestro factor de transcripción PIF5 intacto. Condiciones:
+
+  * Condiciones normales 
+  
+  * Sombra
+  
+* **Mutante KO PIF5**. Llevamos a cabo un knock-out para el gen que codifica para PIF5. Condiciones: 
+
+  * Condiciones normales
+  
+  * Sombra
+
+* **Mutante sobreexpresión PIF5**. En este caso, el gen que codifica para PIF5 se va a encontrar sobreexpresado. Condiciones: 
+
+  * Condiciones normales
+  
+  * Sombra
+  
+Así, vamos a observar el comportamiento y desarrollo de la planta cuando se vea sometida a un estrés por sombra, según el estado en que se encuentre su PIF5, y podremos compararla con los controles (tanto aquellas plantas en las que el PIF5 se encuentre intacto, como aquellas que se han expuesto a condiciones normales, sin ningún estrés). 
+
+Con respecto a la transducción de auxinas, podremos estudiar la relación de PIF5 en este proceso observando los fenotipos de las plantas. Hemos de tener en cuenta que las auxinas son las hormonas responsables del crecimiento de la planta, pues regulan el ciclo celular y la activación meristemática. Por esta razón, no existen mutantes registrados que carezcan de auxinas y que sean viables. Además de estas funciones (que son las principales), las auxinas también son responsables de la diferenciación vascular, el desarrollo de los frutos, el retraso de la abscisión foliar y el control de la filotaxis. 
+
+Lo que sí que vamos a poder observar, son cambios en el fenotipo de la planta según cómo afecten los cambios sobre PIF5 a la transducción de señales de esta hormona. Teniendo en cuenta las funciones anteriormente funcionadas, veremos cómo se ven afectadas según las distintas plantas, lo que nos permitirá (o no) corroborar el papel de PIF5. 
+
+## Referencias
+
+
+* Yang C, Li L. Hormonal Regulation in Shade Avoidance. Front Plant Sci. 2017 Sep 4;8:1527. doi: 10.3389/fpls.2017.01527. PMID: 28928761; PMCID: PMC5591575.
+
+* Hornitschek P, Kohnen MV, Lorrain S, Rougemont J, Ljung K, López-Vidriero I, Franco-Zorrilla JM, Solano R, Trevisan M, Pradervand S, Xenarios I, Fankhauser C. Phytochrome interacting factors 4 and 5 control seedling growth in changing light conditions by directly controlling auxin signaling. Plant J. 2012 Sep;71(5):699-711. doi: 10.1111/j.1365-313X.2012.05033.x. Epub 2012 Jun 22. PMID: 22536829.
+
+* Chen D, Lyu M, Kou X, Li J, Yang Z, Gao L, Li Y, Fan LM, Shi H, Zhong S. Integration of light and temperature sensing by liquid-liquid phase separation of phytochrome B. Mol Cell. 2022 Aug 18;82(16):3015-3029.e6. doi: 10.1016/j.molcel.2022.05.026. Epub 2022 Jun 20. PMID: 35728588.
